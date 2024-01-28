@@ -51,6 +51,8 @@ static int gamePaused = true;
 static int sW = 1280;
 static int sH = 720;
 
+static unsigned int frameCount = 0;
+
 static Vector2 zombies[MAXZOMBIES];
 static float shotgunCooldown = 0;
 
@@ -164,6 +166,9 @@ int fullscreenAdjust()
 
 int handleControls()
 {
+  // Fullscreening
+  if (IsKeyPressed(KEY_F11)) fullscreenAdjust();
+
   // Calculate some very usefull constants
   Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
 
@@ -272,6 +277,49 @@ int tick()
   }
 
   // Perform check to see if player can move to tile
+  const Vector2 size = { 0.6, 0.6 };
+  const Vector2 offset = { 0, 0 };
+  player.pos = Vector2Add(player.pos, scheduledMovement);
+  int canMoveX = 1, canMoveY = 1;
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, -0.31 })))
+    canMoveY = false;
+  else
+  {
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.31, -0.31 })))
+      canMoveY = 0;
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.31, 0.31 })))
+      canMoveY = 0;
+  }
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, 0.31 })))
+    canMoveY = false;
+  else
+  {
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.31, -0.31 })))
+      canMoveY = 0;
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.31, 0.31 })))
+      canMoveY = 0;
+  }
+  if (*getTile(Vector2Add(player.pos, (Vector2){ -0.31, 0 })))
+    canMoveX = false;
+  else
+  {
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.31, -0.31 })))
+      canMoveX = 0;
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.31, -0.31 })))
+      canMoveX = 0;
+  }
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0.31, 0 })))
+    canMoveX = false;
+  else
+  {
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.31, 0.31 })))
+      canMoveX = 0;
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.31, 0.31 })))
+      canMoveX = 0;
+  }
+  printf("%d, %d\n", canMoveX, canMoveY);
+
+  /* Legacy useless shit code that was create at 3 am
   Vector2 checkDirections[9] = {
     // (Vector2){ 0, 0 },
     (Vector2){ -0.31, -0.31 },
@@ -283,8 +331,6 @@ int tick()
     (Vector2){ -0.31, 0.31 },
     // (Vector2){ -0.31, 0 },
   };
-  player.pos = Vector2Add(player.pos, scheduledMovement);
-  int canMoveX = 1, canMoveY = 1;
   for (int dir = 0; dir < 4; ++dir)
     if (*getTile(Vector2Add(checkDirections[dir], player.pos)) == 1)
     {
@@ -294,6 +340,7 @@ int tick()
       {
         // player.pos.x -= scheduledMovement.x;
         canMoveX = false;
+        printf("%f %f\n", diff.x, diff.y);
       }
       if (diff.y < 0.5 || diff.y > -0.5)
       {
@@ -301,6 +348,7 @@ int tick()
         canMoveY = false;
       }
     }
+  */
   if (!canMoveX) player.pos.x -= scheduledMovement.x;
   if (!canMoveY) player.pos.y -= scheduledMovement.y;
 
