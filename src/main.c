@@ -11,7 +11,7 @@
 #define WIDECHUNKS 50 
 #define FPS 120
 #define SPEED 5
-#define MAXZOMBIES 100
+#define MAXZOMBIES 00
 #define ZOMBIESPEED 4
 // Shotgun Cooldown 0.5s
 #define SGCD 0.5
@@ -62,6 +62,7 @@ float radianConvert(float angle);
 int fullscreenAdjust();
 int xorShift32(int state);
 int findChunk(int length, struct mapChunk chunks[length], int xPos, int yPos, int flags);
+char *getTile(Vector2 pos);
 
 int setupGame();
 int handleControls();
@@ -165,17 +166,6 @@ int handleControls()
 {
   // Calculate some very usefull constants
   Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
-  float mouseAngle = Vector2Angle((Vector2){ 1, 1 }, normalisedMouse);
-  int tileSize = sH / (float) TILESONSCREEN;
-  Vector2 mouseTile = Vector2Scale(normalisedMouse, 1.f / tileSize);
-  int px = mouseTile.x + player.pos.x > 0 ? (int) mouseTile.x + player.pos.x : (int) mouseTile.x + player.pos.x - 1;
-  int py = mouseTile.y + player.pos.y > 0 ? (int) mouseTile.y + player.pos.y : (int) mouseTile.y + player.pos.y - 1;
-  py++;
-  if (px < 10) px++;
-  int pCx = px > 0 ? (int) px / 128 : (int) px / 128 - 1;
-  int pCy = py > 0 ? (int) py / 128 : (int) py-- / 128 - 1;
-  int mouseTileX = (int)(normalisedMouse.x / tileSize + player.pos.x - CHUNKSIZE * pCx);
-  int mouseTileY = (int)(normalisedMouse.y / tileSize + player.pos.y - CHUNKSIZE * pCy);
 
   // Handle movement; peform collision check with tile
   scheduledMovement = (Vector2){ 0, 0 };
@@ -198,32 +188,27 @@ int handleControls()
 
   if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && shotgunCooldown <= 0)
   {
-    Vector2 inRange[MAXZOMBIES];
-    for (int i = 0; i < MAXZOMBIES; ++i) inRange[i] = (Vector2){ 0, 0 };
     // Check for all zombie in 360 range then refine
     for (int i = 0; i < MAXZOMBIES; ++i)
       if (zombies[i].x != 0)
         if (Vector2Distance(zombies[i], player.pos) <= 3)
-          inRange[i] = zombies[i];
-    // Check for all the zombies within 45 degrees of aimed direction
-    for (int i = 0; i < MAXZOMBIES; ++i)
-      if (inRange[i].x != 0)
-      {
-        angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[0], player.pos));
-        if (angle > -0.785398 && angle < 0.785398)
         {
-          // Delete the zombie and set the tile at its location to solid
-          zombies[i] = (Vector2){ 0, 0 };
-          chunk = findChunk(4, activeChunks, (int) inRange[i].x / 128, (int) inRange[i].y / 128, 0);
-          activeChunks[chunk].tiles[(int) inRange[i].x % 128][(int) inRange[i].y % 128] = 1;
+          // Check for all the zombies within 45 degrees of aimed direction
+          angle = Vector2Angle(normalisedMouse, Vector2Subtract(zombies[i], player.pos));
+          if (angle > -0.785398 && angle < 0.785398)
+          {
+            // Delete the zombie and set the tile at its location to solid
+            *getTile(zombies[i]) = 1;
+            zombies[i] = (Vector2){ 0, 0 };
+          }
         }
-      }
   }
 
 
   #ifdef debug
   if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
-    activeChunks[findChunk(4, activeChunks, pCx, pCy, 0)].tiles[mouseTileX][mouseTileY] = 1;
+    // normalisedMouse
+    *getTile(Vector2Add(Vector2Scale(normalisedMouse, (float) TILESONSCREEN / sH), player.pos)) = 1;
   #endif /* ifdef debug */
   return 0;
 }
@@ -257,7 +242,7 @@ int tick()
     }
     else if (zombiesToPlace)
     {
-      zombies[i] = Vector2Add(player.pos, Vector2Rotate((Vector2){ TILESONSCREEN + GetRandomValue(0, 5), 0 }, random()));
+      zombies[i] = Vector2Add(player.pos, Vector2Rotate((Vector2){ TILESONSCREEN + GetRandomValue(0, 5), 0 }, 42069.f / rand()));
       zombiesToPlace--;
     }
   
@@ -286,79 +271,38 @@ int tick()
       activeChunkExistsY = -1 * (chunky - (int) activeChunks[i].pos.y);
   }
 
-  // Perform check to see if tile can be moved to
-  /*
-  Vector2 checkDirections[8] = {
-    (Vector2){ -1, -1 },
-    (Vector2){ 0, -1 },
-    (Vector2){ 1, -1 },
-    (Vector2){ 1, 0 },
-    (Vector2){ 1, 1 },
-    (Vector2){ 0, 1 },
-    (Vector2){ -1, 1 },
-    (Vector2){ -1, 0 },
+  // Perform check to see if player can move to tile
+  Vector2 checkDirections[9] = {
+    // (Vector2){ 0, 0 },
+    (Vector2){ -0.31, -0.31 },
+    // (Vector2){ 0, -0.31 },
+    (Vector2){ 0.31, -0.31 },
+    // (Vector2){ 0.31, 0 },
+    (Vector2){ 0.31, 0.31 },
+    // (Vector2){ 0, 0.31 },
+    (Vector2){ -0.31, 0.31 },
+    // (Vector2){ -0.31, 0 },
   };
-  Vector2 tileOffset = {
-    player.pos.x - (int) player.pos.x,
-    player.pos.x - (int) player.pos.x
-  };
-  for (int dir = 0; dir < 8; ++dir)
-  {
-    // For each surrounding tile, check if we are walking into it
-    // If we are walking into it then make sure that it's not infected
-    // If the player cannot traverse the tile then remove any movement in that direction
-    Vector2 moved = Vector2Add(tileOffset, scheduledMovement);
-    px += checkDirections[dir].x;
-    py += checkDirections[dir].y;
-    // Check if tile is wall
-    if (px < 0) px = CHUNKSIZE - 1;
-    if (py < 0) py = CHUNKSIZE - 1;
-    int tileVal = activeChunks[findChunk(4, activeChunks, chunkx, chunky, 0)].tiles[px][py];
-    if (moved.x > checkDirections[dir].x * 1.f)
-      if (tileVal == 1)
-        scheduledMovement.x = 0;
-
-    if (moved.y > checkDirections[dir].y * 1.f)
-      if (tileVal == 1)
-        scheduledMovement.y = 0;
-
-    px -= checkDirections[dir].x;
-    py -= checkDirections[dir].y;
-
-  } */
   player.pos = Vector2Add(player.pos, scheduledMovement);
-  if (activeChunks[findChunk(4, activeChunks, chunkx, chunky, 0)].tiles[offsetx][offsety] == 1)
-  {
-    // Vector2 pTileMid = {
-    //   player.pos.y > 0 ? (int)(player.pos.y + 0.5f) : (int)(player.pos.y + 0.5f) - 1,
-    //   player.pos.x > 0 ? (int)(player.pos.x + 0.5f) : (int)(player.pos.x + 0.5f) - 1
-    // };
-    Vector2 pTileMid = { px, py };
-    Vector2 diff = Vector2Subtract(player.pos, pTileMid);
-    printf("%f %f\n", diff.x, diff.y);
-    // if (diff.x < 1 || diff.y < 1)
-      // player.pos = Vector2Lerp(player.pos, pTileMid, 1.3f);
-    if (diff.x < 0 || diff.x > -1)
+  int canMoveX = 1, canMoveY = 1;
+  for (int dir = 0; dir < 4; ++dir)
+    if (*getTile(Vector2Add(checkDirections[dir], player.pos)) == 1)
     {
-      player.pos.x -= scheduledMovement.x;
-      player.pos.x += diff.x * 0.01 + 0.005;
-      // if (diff.x > -0.5f)
-      //   player.pos.x++;
-      // else
-      //   player.pos.x--;
-      // player.pos.x -= diff.x;
+      Vector2 pTileMid = Vector2Add(checkDirections[dir], (Vector2){ px + 0.5f, py + 0.5f });
+      Vector2 diff = Vector2Subtract(player.pos, pTileMid);
+      if (diff.x < 0.5 || diff.x > -0.5)
+      {
+        // player.pos.x -= scheduledMovement.x;
+        canMoveX = false;
+      }
+      if (diff.y < 0.5 || diff.y > -0.5)
+      {
+        // player.pos.y -= scheduledMovement.y;
+        canMoveY = false;
+      }
     }
-    if (diff.y < 0 || diff.y > -1)
-    {
-      player.pos.y -= scheduledMovement.y;
-      player.pos.y += diff.y * 0.01 + 0.005;
-      // if (diff.y > -0.5f)
-      //   player.pos.y++;
-      // else
-      //   player.pos.y--;
-      // player.pos.y -= diff.y;
-    }
-  }
+  if (!canMoveX) player.pos.x -= scheduledMovement.x;
+  if (!canMoveY) player.pos.y -= scheduledMovement.y;
 
   // Load more chunks in the correct direction
   // Check if the player is near the edge of a chunk and 'shift' the active chunks
@@ -477,7 +421,7 @@ int drawGame()
         Color col = { 0, 128, 45, 255};
         col.g = 128 + 4 * (randoms[x][y] % 3);
         col.g *= 1 - activeChunks[c].tiles[x][y];
-        col.r = 255 * activeChunks[c].tiles[x][y];
+        col.r = 200 * activeChunks[c].tiles[x][y];
         #ifdef debug
         if ((!x || x == 127) && (!y || y == 127)) col = RAYWHITE;
         #endif /* ifdef debug */
@@ -491,6 +435,11 @@ int drawGame()
   // DrawCircleSector((Vector2){ 0, 0 }, tileSize, radianConvert(mouseAngle - 0.785398), radianConvert(mouseAngle + 0.785398), 10, (Color){ 245, 245, 245, 255 });
   //printf("%f %f\n", mouseAngle - 0.785398, mouseAngle + 0.785398);
 
+  #ifdef debug
+  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) DrawRectangle(0 - sW / 2, 0, 10, 10, RED);
+  if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) DrawRectangle(0 - sW / 2, 10, 10, 10, RED);
+  #endif /* ifdef debug */
+
   // Draw zombies
   Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
   for (int i = 0; i < MAXZOMBIES; ++i)
@@ -498,7 +447,7 @@ int drawGame()
     {
       if (Vector2Distance(zombies[i], player.pos) <= 3)
       {
-        float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[0], player.pos));
+        float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
         if (angle > -0.785398 && angle < 0.785398)
           DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, RED);
         else
@@ -506,6 +455,11 @@ int drawGame()
       }
       else
         DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, PURPLE);
+      #ifdef debug
+      float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
+      Vector2 tpos = Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize);
+      DrawText(TextFormat("%f", angle), tpos.x, tpos.y, 20, RED);
+      #endif /* ifdef debug */
     }
 
   // Draw player
@@ -622,4 +576,17 @@ float radianConvert(float angle)
     return angle - 6.28319;
   else
     return angle;
+}
+
+char *getTile(Vector2 pos)
+{
+  int px = pos.x > 0 ? (int) pos.x : (int) pos.x - 1;
+  int py = pos.y > 0 ? (int) pos.y : (int) pos.y - 1;
+  py++;
+  if (px < 10) px++;
+  int pCx = px > 0 ? (int) px / 128 : (int) px / 128 - 1;
+  int pCy = py > 0 ? (int) py / 128 : (int) py-- / 128 - 1;
+  int chunkTileX = (int)(pos.x - CHUNKSIZE * pCx);
+  int chunkTileY = (int)(pos.y - CHUNKSIZE * pCy);
+  return &activeChunks[findChunk(4, activeChunks, pCx, pCy, 0)].tiles[chunkTileX][chunkTileY];
 }
