@@ -47,7 +47,8 @@ static unsigned int openSlots[MAXCHUNKS] = { -1 };
 int saveActiveChunk(int slot);
 int loadChunk(int slot, int xPos, int yPos);
 
-static int gamePaused = true;
+static int gamePaused = 1;
+static int playerDead = 0;
 static int sW = 1280;
 static int sH = 720;
 
@@ -72,6 +73,8 @@ int tick();
 int drawGame();
 int drawUI();
 
+Texture2D grassTex;
+
 int main(int argc, char *argv[])
 {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);    // Window configuration flags
@@ -80,6 +83,9 @@ int main(int argc, char *argv[])
   #ifndef debug
   fullscreenAdjust();
   #endif /* ifndef debug */
+
+  // Load textures
+  grassTex = LoadTexture("grass.png");
 
   // Pregenerate the random textures so that rendering is faster
   for (int x = 0; x < CHUNKSIZE; ++x)
@@ -115,6 +121,7 @@ int main(int argc, char *argv[])
 int setupGame()
 {
   // Reset player
+  playerDead = 0;
   player.pos.x = 10.f;
   player.pos.y = 10.f;
   player.weapon = 1;
@@ -221,6 +228,8 @@ int handleControls()
 
 int tick()
 {
+  // Animate
+  frameCount++;
   // Move zombies towards player
   float distance;
   int zombiesToPlace = GetRandomValue(1, FPS) / FPS;
@@ -228,6 +237,8 @@ int tick()
     if (zombies[i].x != 0)
     {
       distance = Vector2Distance(player.pos, zombies[i]);
+      // Check if player is dead
+      if (distance < sH / (float) TILESONSCREEN) playerDead = 1;
       // Vector2Add(player.pos, (Vector2){ GetRandomValue(-5, 5), GetRandomValue(-5, 5)})
       zombies[i] = Vector2Lerp(zombies[i], player.pos, (float) ZOMBIESPEED / FPS / distance);
       // Really inefficent but check for collisions with all other zombies
@@ -276,48 +287,46 @@ int tick()
       activeChunkExistsY = -1 * (chunky - (int) activeChunks[i].pos.y);
   }
 
-  // Perform check to see if player can move to tile
-  const Vector2 size = { 0.6, 0.6 };
-  const Vector2 offset = { 0, 0 };
+  // Perform check to see if player can move to tile (Check collision)
   player.pos = Vector2Add(player.pos, scheduledMovement);
   int canMoveX = 1, canMoveY = 1;
-  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, -0.31 })))
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, -0.29 })))
     canMoveY = false;
   else
   {
-    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.31, -0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.29, -0.29 })))
       canMoveY = 0;
-    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.31, 0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ -0.29, 0.29 })))
       canMoveY = 0;
   }
-  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, 0.31 })))
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0, 0.29 })))
     canMoveY = false;
   else
   {
-    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.31, -0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.29, -0.29 })))
       canMoveY = 0;
-    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.31, 0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x - scheduledMovement.x , player.pos.y }, (Vector2){ 0.29, 0.29 })))
       canMoveY = 0;
   }
-  if (*getTile(Vector2Add(player.pos, (Vector2){ -0.31, 0 })))
+  if (*getTile(Vector2Add(player.pos, (Vector2){ -0.29, 0 })))
     canMoveX = false;
   else
   {
-    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.31, -0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.29, -0.29 })))
       canMoveX = 0;
-    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.31, -0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.29, -0.29 })))
       canMoveX = 0;
   }
-  if (*getTile(Vector2Add(player.pos, (Vector2){ 0.31, 0 })))
+  if (*getTile(Vector2Add(player.pos, (Vector2){ 0.29, 0 })))
     canMoveX = false;
   else
   {
-    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.31, 0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ -0.29, 0.29 })))
       canMoveX = 0;
-    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.31, 0.31 })))
+    if (*getTile(Vector2Add((Vector2){ player.pos.x, player.pos.y - scheduledMovement.y }, (Vector2){ 0.29, 0.29 })))
       canMoveX = 0;
   }
-  printf("%d, %d\n", canMoveX, canMoveY);
+  // printf("%d, %d\n", canMoveX, canMoveY);
 
   /* Legacy useless shit code that was create at 3 am
   Vector2 checkDirections[9] = {
@@ -448,6 +457,7 @@ int drawGame()
     DrawRectangleLines(activeChunks[c].pos.x * tileSize * CHUNKSIZE, activeChunks[c].pos.y * tileSize * CHUNKSIZE, tileSize * CHUNKSIZE, tileSize * CHUNKSIZE, RED);
   #endif /* ifdef debug */
   // Draw active chunks
+  Rectangle tileRect;
   for (int c = 0; c < 4; ++c)
     for (int x = 0; x < CHUNKSIZE; ++x)
       for (int y = 0; y < CHUNKSIZE; ++y)
@@ -473,7 +483,9 @@ int drawGame()
         #ifdef debug
         if ((!x || x == 127) && (!y || y == 127)) col = RAYWHITE;
         #endif /* ifdef debug */
-        DrawRectangle(pixelPosX, pixelPosY, otileSize, otileSize, col);
+        // DrawRectangle(pixelPosX, pixelPosY, otileSize, otileSize, col);
+        tileRect = (Rectangle){ 0, 0, otileSize, otileSize };
+        DrawTextureRec(grassTex, tileRect, (Vector2){ pixelPosX, pixelPosY }, col);
         // DrawText(TextFormat("%d %d", (int) activeChunks[c].pos.x, (int) activeChunks[c].pos.y), screenPos.x * tileSize, screenPos.y * tileSize, tileSize / 5, RED);
       }
 
@@ -511,8 +523,9 @@ int drawGame()
     }
 
   // Draw player
-  DrawRectangle(tileSize * -0.3, tileSize * -0.3, otileSize * 0.6, otileSize * 0.6, BLUE);
-  DrawRectangleLines(tileSize * -0.3, tileSize * -0.3, otileSize * 0.6, otileSize * 0.6, BLACK);
+  float ftileSize = sH / (float) TILESONSCREEN;
+  DrawRectangle(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLUE);
+  DrawRectangleLines(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLACK);
   #ifdef debug
   // Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
   // printf("%f %f %f\n", mouseAngle, GetMousePosition().x, GetMousePosition().y);
@@ -521,8 +534,8 @@ int drawGame()
   Vector2 v1 = Vector2Rotate((Vector2){ tileSize * 0.5, tileSize * 0.4 }, mouseAngle + 0.785398);
   Vector2 v2 = Vector2Rotate((Vector2){ tileSize * 0.5, tileSize * -0.4 }, mouseAngle + 0.785398);
   Vector2 v3 = Vector2Rotate((Vector2){ tileSize * 0.9, 0 }, mouseAngle + 0.785398);
-  DrawTriangle(v1, v3, v2, BLUE);
-  DrawTriangleLines(v1, v2, v3, BLACK);
+  DrawTriangle(v1, v3, v2, (Color){ 00, 00, 255, 100 });
+  // DrawTriangleLines(v1, v2, v3, BLACK);
 
   return 0;
 }
