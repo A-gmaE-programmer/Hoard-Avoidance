@@ -53,6 +53,7 @@ static int sW = 1280;
 static int sH = 720;
 
 static unsigned int frameCount = 0;
+static int facing = 0; // Direction the player is facing
 
 static Vector2 zombies[MAXZOMBIES];
 static float shotgunCooldown = 0;
@@ -74,6 +75,8 @@ int drawGame();
 int drawUI();
 
 Texture2D grassTex;
+Texture2D manLeft;
+Texture2D manRight;
 
 int main(int argc, char *argv[])
 {
@@ -86,6 +89,8 @@ int main(int argc, char *argv[])
 
   // Load textures
   grassTex = LoadTexture("grass.png");
+  manLeft = LoadTexture("ManLeft.png");
+  manRight = LoadTexture("ManRight.png");
 
   // Pregenerate the random textures so that rendering is faster
   for (int x = 0; x < CHUNKSIZE; ++x)
@@ -190,9 +195,9 @@ int handleControls()
   if (IsKeyDown(KEY_D))
     scheduledMovement.x += (float) SPEED / FPS;
 
-  /* Animate Character Movement
-   * if (scheduledMovement.x != 0 || scheduledMovement.y != 0)
-   */
+  // Set player direction
+  if (scheduledMovement.x > 0) facing = 1;
+  if (scheduledMovement.x < 0) facing = 0;
 
   float angle;
   Vector2 zom;
@@ -483,9 +488,7 @@ int drawGame()
         #ifdef debug
         if ((!x || x == 127) && (!y || y == 127)) col = RAYWHITE;
         #endif /* ifdef debug */
-        // DrawRectangle(pixelPosX, pixelPosY, otileSize, otileSize, col);
-        tileRect = (Rectangle){ 0, 0, otileSize, otileSize };
-        DrawTextureRec(grassTex, tileRect, (Vector2){ pixelPosX, pixelPosY }, col);
+        DrawTextureEx(grassTex, (Vector2){ pixelPosX, pixelPosY }, 0.f, otileSize / 40.f, col);
         // DrawText(TextFormat("%d %d", (int) activeChunks[c].pos.x, (int) activeChunks[c].pos.y), screenPos.x * tileSize, screenPos.y * tileSize, tileSize / 5, RED);
       }
 
@@ -524,19 +527,23 @@ int drawGame()
 
   // Draw player
   float ftileSize = sH / (float) TILESONSCREEN;
-  DrawRectangle(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLUE);
-  DrawRectangleLines(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLACK);
+  // DrawRectangle(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLUE);
+  // DrawRectangleLines(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLACK);
   #ifdef debug
   // Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
   // printf("%f %f %f\n", mouseAngle, GetMousePosition().x, GetMousePosition().y);
   #endif /* ifdef debug */
+  
+  // Anime player
+  // DrawTextureRec(manLeft, (Rectangle){ 0, 0, ftileSize * 06, ftileSize * 06 }, (Vector2){ ftileSize * -03, ftileSize * -03}, (Color){ 128, 128, 128, 255 });
+  DrawTextureEx(facing?manRight:manLeft, (Vector2){ ftileSize * -0.5, ftileSize * -0.5}, 0.f, ftileSize / 8.f, WHITE);
+
   // Subtract 45 degrees
-  Vector2 v1 = Vector2Rotate((Vector2){ tileSize * 0.5, tileSize * 0.4 }, mouseAngle + 0.785398);
-  Vector2 v2 = Vector2Rotate((Vector2){ tileSize * 0.5, tileSize * -0.4 }, mouseAngle + 0.785398);
-  Vector2 v3 = Vector2Rotate((Vector2){ tileSize * 0.9, 0 }, mouseAngle + 0.785398);
+  Vector2 v1 = Vector2Rotate((Vector2){ tileSize * 1.f, tileSize * 0.4 }, mouseAngle + 0.785398);
+  Vector2 v2 = Vector2Rotate((Vector2){ tileSize * 1.f, tileSize * -0.4 }, mouseAngle + 0.785398);
+  Vector2 v3 = Vector2Rotate((Vector2){ tileSize * 1.4, 0 }, mouseAngle + 0.785398);
   DrawTriangle(v1, v3, v2, (Color){ 00, 00, 255, 100 });
   // DrawTriangleLines(v1, v2, v3, BLACK);
-
   return 0;
 }
 
