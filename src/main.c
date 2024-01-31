@@ -4,15 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+// TODO: Airdrops
+// TODO: Sprint meter (regenerates slowly, allows for short sprints)
+
 #define CHUNKSIZE 128
 #define cameraZoom 1.0f
 #define MAXCHUNKS 25
 #define TILESONSCREEN 20
 #define WIDECHUNKS 50 
 #define FPS 120
-#define SPEED 5
-#define MAXZOMBIES 00
-#define ZOMBIESPEED 4
+#define SPEED 9
+#define MAXZOMBIES 1000
+// This does nothing rn
+#define NUMSPAWNLOCATIONS 4
+#define ZOMBIESPEED 9
 // Shotgun Cooldown 0.5s
 #define SGCD 0.5
 #define debug true
@@ -44,6 +49,8 @@ static char activeChunkExistsY; // -1->Top; 1->Below
 static struct mapChunk chunks[MAXCHUNKS] = { 0 };
 static unsigned int openSlots[MAXCHUNKS] = { -1 };
 
+int toggleState(int *var);
+
 int saveActiveChunk(int slot);
 int loadChunk(int slot, int xPos, int yPos);
 
@@ -56,6 +63,9 @@ static unsigned int frameCount = 0;
 static int facing = 0; // Direction the player is facing
 
 static Vector2 zombies[MAXZOMBIES];
+static Vector2 spawnLocations[NUMSPAWNLOCATIONS];
+static int spawnLocationsI;
+static int spawnAt;
 static float shotgunCooldown = 0;
 
 static Vector2 scheduledMovement;
@@ -76,7 +86,12 @@ int drawUI();
 
 Texture2D grassTex;
 Texture2D manLeft;
+Texture2D manLeftWalk[2];
 Texture2D manRight;
+Texture2D manRightWalk[2];
+
+Texture2D zombieLeftWalk[2];
+Texture2D zombieRightWalk[2];
 
 int main(int argc, char *argv[])
 {
@@ -90,7 +105,16 @@ int main(int argc, char *argv[])
   // Load textures
   grassTex = LoadTexture("grass.png");
   manLeft = LoadTexture("ManLeft.png");
+  manLeftWalk[0] = LoadTexture("ManLeftWalk1.png");
+  manLeftWalk[1] = LoadTexture("ManLeftWalk2.png");
   manRight = LoadTexture("ManRight.png");
+  manRightWalk[0] = LoadTexture("ManRightWalk1.png");
+  manRightWalk[1] = LoadTexture("ManRightWalk2.png");
+
+  zombieLeftWalk[0] = LoadTexture("Zombie2LeftWalk1.png");
+  zombieLeftWalk[1] = LoadTexture("Zombie2LeftWalk2.png");
+  zombieRightWalk[0] = LoadTexture("Zombie2RightWalk1.png");
+  zombieRightWalk[1] = LoadTexture("Zombie2RightWalk2.png");
 
   // Pregenerate the random textures so that rendering is faster
   for (int x = 0; x < CHUNKSIZE; ++x)
@@ -106,7 +130,7 @@ int main(int argc, char *argv[])
     // Take keyboard inputs
     handleControls();
     // Update game variables
-    tick();
+    if (!gamePaused) tick();
 
     BeginDrawing();
       ClearBackground(RAYWHITE);
@@ -152,10 +176,19 @@ int setupGame()
   Vector2 v;
   for (int i = 0; i < MAXZOMBIES; ++i)
     zombies[i] = (Vector2){ 0, 0 };
+  for (int i = 0; i < NUMSPAWNLOCATIONS; ++i)
+    spawnLocations[i] = (Vector2){ 0, 0 };
+  spawnLocationsI = 0;
 
   return 0;
 }
 
+
+int toggleState(int *var)
+{
+  *var = !*var;
+  return !*var;
+}
 
 int fullscreenAdjust()
 {
@@ -180,6 +213,9 @@ int handleControls()
 {
   // Fullscreening
   if (IsKeyPressed(KEY_F11)) fullscreenAdjust();
+
+  // Pausing
+  if (IsKeyPressed(KEY_P) && !playerDead) toggleState(&gamePaused);
 
   // Calculate some very usefull constants
   Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
@@ -216,6 +252,8 @@ int handleControls()
           {
             // Delete the zombie and set the tile at its location to solid
             *getTile(zombies[i]) = 1;
+            spawnLocations[spawnLocationsI] = zombies[i];
+            spawnLocationsI = ++spawnLocationsI >= NUMSPAWNLOCATIONS ? 0 : spawnLocationsI;
             zombies[i] = (Vector2){ 0, 0 };
           }
         }
@@ -233,11 +271,15 @@ int handleControls()
 
 int tick()
 {
+  // Cooldown
+  // shotgunCooldown--;
   // Animate
   frameCount++;
   // Move zombies towards player
   float distance;
   int zombiesToPlace = GetRandomValue(1, FPS) / FPS;
+  // Try to spawn 4 zombies every half second
+  int tileZombies = (GetRandomValue(1, FPS) / FPS) * 4;
   for (int i = 0; i < MAXZOMBIES; ++i)
     if (zombies[i].x != 0)
     {
@@ -263,8 +305,14 @@ int tick()
     }
     else if (zombiesToPlace)
     {
-      zombies[i] = Vector2Add(player.pos, Vector2Rotate((Vector2){ TILESONSCREEN + GetRandomValue(0, 5), 0 }, 42069.f / rand()));
+      zombies[i] = Vector2Add(player.pos, Vector2Rotate((Vector2){ TILESONSCREEN + GetRandomValue(0, 5), 0 }, 42069.f / (rand() % 3600)));
       zombiesToPlace--;
+    }
+    else if (tileZombies)
+    {
+      if (spawnLocations[tileZombies-1].x != 0)
+        zombies[i] = spawnLocations[tileZombies-1];
+      tileZombies--;
     }
   
 
@@ -503,30 +551,32 @@ int drawGame()
   if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) DrawRectangle(0 - sW / 2, 10, 10, 10, RED);
   #endif /* ifdef debug */
 
+  float ftileSize = sH / (float) TILESONSCREEN;
   // Draw zombies
   Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
+  Texture2D zombieTex;
   for (int i = 0; i < MAXZOMBIES; ++i)
     if (zombies[i].x != 0)
     {
-      if (Vector2Distance(zombies[i], player.pos) <= 3)
-      {
-        float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
-        if (angle > -0.785398 && angle < 0.785398)
-          DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, RED);
-        else
-        DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, PURPLE);
-      }
+      if (zombies[i].x > player.pos.x)
+        zombieTex = zombieRightWalk[((frameCount + i) % (FPS / 4)) * 8 / FPS];
       else
-        DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, PURPLE);
+        zombieTex = zombieLeftWalk[((frameCount + i) % (FPS / 4)) * 8 / FPS];
+      DrawTextureEx(zombieTex, Vector2Add(Vector2Scale(Vector2Subtract(zombies[i], player.pos), ftileSize), (Vector2){ ftileSize * -0.4, ftileSize * -0.5 }), 0.f, ftileSize / 8.0f, WHITE);
       #ifdef debug
       float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
+      if (Vector2Distance(zombies[i], player.pos) <= 3)
+      {
+        // float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
+        if (angle > -0.785398 && angle < 0.785398) DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, RED);
+        else DrawCircleV(Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize), tileSize * 0.3, PURPLE);
+      }
       Vector2 tpos = Vector2Scale(Vector2Subtract(zombies[i], player.pos), tileSize);
-      DrawText(TextFormat("%f", angle), tpos.x, tpos.y, 20, RED);
+      DrawText(TextFormat("%f", zombies[i].x), tpos.x, tpos.y, 20, RED);
       #endif /* ifdef debug */
     }
 
   // Draw player
-  float ftileSize = sH / (float) TILESONSCREEN;
   // DrawRectangle(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLUE);
   // DrawRectangleLines(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLACK);
   #ifdef debug
@@ -536,7 +586,15 @@ int drawGame()
   
   // Anime player
   // DrawTextureRec(manLeft, (Rectangle){ 0, 0, ftileSize * 06, ftileSize * 06 }, (Vector2){ ftileSize * -03, ftileSize * -03}, (Color){ 128, 128, 128, 255 });
-  DrawTextureEx(facing?manRight:manLeft, (Vector2){ ftileSize * -0.5, ftileSize * -0.5}, 0.f, ftileSize / 8.f, WHITE);
+  Texture2D manTex = facing?manRight:manLeft;
+  if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
+  {
+    if (facing)
+      manTex = manRightWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
+    else
+      manTex = manLeftWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
+  }
+  DrawTextureEx(manTex, (Vector2){ ftileSize * -0.5, ftileSize * -0.5}, 0.f, ftileSize / 8.f, WHITE);
 
   // Subtract 45 degrees
   Vector2 v1 = Vector2Rotate((Vector2){ tileSize * 1.f, tileSize * 0.4 }, mouseAngle + 0.785398);
@@ -563,6 +621,7 @@ int drawUI()
   DrawText(TextFormat("aCE: %d, %d", activeChunkExistsX, activeChunkExistsY), 10, 100, 20, RED);
   #endif /* ifdef debug */
   // Draw FPS
+  if (gamePaused) DrawRectangleLinesEx((Rectangle){ 0, 0, sW, sH }, 20, (Color){ 230, 41, 55, 128 });
   DrawFPS(10, sH - 30);
   return 0;
 }
