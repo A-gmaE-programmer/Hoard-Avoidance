@@ -20,10 +20,10 @@
 #define ZOMBIESPEED 9
 // Shotgun Cooldown 0.5s
 #define SGCD 0.5
-#define debug true
+// #define debug true
 
 enum {UP, DOWN, LEFT, RIGHT}; // Directions
-enum {PLAYING, GAMEOVER, START}; // Game screens
+enum {PLAYING, GAMEOVER, START, PAUSED}; // Game screens
 
 struct player
 {
@@ -48,8 +48,6 @@ static char activeChunkExistsX; // -1->Left; 1->Right
 static char activeChunkExistsY; // -1->Top; 1->Below
 static struct mapChunk chunks[MAXCHUNKS] = { 0 };
 static unsigned int openSlots[MAXCHUNKS] = { -1 };
-
-int toggleState(int *var);
 
 int saveActiveChunk(int slot);
 int loadChunk(int slot, int xPos, int yPos);
@@ -77,12 +75,15 @@ int fullscreenAdjust();
 int xorShift32(int state);
 int findChunk(int length, struct mapChunk chunks[length], int xPos, int yPos, int flags);
 char *getTile(Vector2 pos);
+// int spiralFindTile(Vector2 pos, int *x, int *y, int *activeChunk, char match);  // Not implemented
+int toggleState(int *var);
 
 int setupGame();
 int handleControls();
 int tick();
 int drawGame();
 int drawUI();
+int drawScreen(int screen);
 
 Texture2D grassTex;
 Texture2D manLeft;
@@ -123,6 +124,9 @@ int main(int argc, char *argv[])
 
   // Set up game variables
   setupGame();
+  BeginDrawing();
+  drawScreen(START);
+  EndDrawing();
 
   // Main loop
   while (!WindowShouldClose())
@@ -171,7 +175,7 @@ int setupGame()
   activeChunks[3].pos = (Vector2){ 0.f, 0.f };
   activeChunkExistsX = -1;
   activeChunkExistsY = -1;
-  // Place some zombie around the player
+  // Clear out the zombies
   SetRandomSeed(69);
   Vector2 v;
   for (int i = 0; i < MAXZOMBIES; ++i)
@@ -239,8 +243,9 @@ int handleControls()
   Vector2 zom;
   int chunk, chunkx, chunky;
 
-  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && shotgunCooldown <= 0)
+  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && shotgunCooldown > SGCD)
   {
+    shotgunCooldown = 0.f;
     // Check for all zombie in 360 range then refine
     for (int i = 0; i < MAXZOMBIES; ++i)
       if (zombies[i].x != 0)
@@ -272,7 +277,7 @@ int handleControls()
 int tick()
 {
   // Cooldown
-  // shotgunCooldown--;
+  shotgunCooldown += 1.f / FPS;
   // Animate
   frameCount++;
   // Move zombies towards player
@@ -285,7 +290,11 @@ int tick()
     {
       distance = Vector2Distance(player.pos, zombies[i]);
       // Check if player is dead
-      if (distance < sH / (float) TILESONSCREEN) playerDead = 1;
+      if (distance < 0.5f)
+      {
+        playerDead = 1;
+        gamePaused = 1;
+      }
       // Vector2Add(player.pos, (Vector2){ GetRandomValue(-5, 5), GetRandomValue(-5, 5)})
       zombies[i] = Vector2Lerp(zombies[i], player.pos, (float) ZOMBIESPEED / FPS / distance);
       // Really inefficent but check for collisions with all other zombies
@@ -331,7 +340,7 @@ int tick()
 
 
   // Make sure that we know where the active chunks around us are
-  int x, y;
+  // int x, y;
   for (int i = 0; i < 4; ++i)
   {
     if ((int) activeChunks[i].pos.x != chunkx)
@@ -542,7 +551,14 @@ int drawGame()
 
   // Draw gun range
   float mouseAngle = Vector2Angle((Vector2){ 1, 1 }, Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH }));
-  DrawCircleSector((Vector2){ 0, 0 }, tileSize * 3, mouseAngle * 57.29573672, mouseAngle * 57.29573672 + 90, 30, (Color){ 245, 245, 245, 120 });
+  Color col = { 245, 245, 245, 120 };
+  // Flash the firing range yellow for 0.1s
+  if (shotgunCooldown <= 0.1f)
+  {
+    col = YELLOW;
+    col.a = 120;
+  }
+  DrawCircleSector((Vector2){ 0, 0 }, tileSize * 3, mouseAngle * 57.29573672, mouseAngle * 57.29573672 + 90, 30, col);
   // DrawCircleSector((Vector2){ 0, 0 }, tileSize, radianConvert(mouseAngle - 0.785398), radianConvert(mouseAngle + 0.785398), 10, (Color){ 245, 245, 245, 255 });
   //printf("%f %f\n", mouseAngle - 0.785398, mouseAngle + 0.785398);
 
@@ -559,9 +575,9 @@ int drawGame()
     if (zombies[i].x != 0)
     {
       if (zombies[i].x > player.pos.x)
-        zombieTex = zombieRightWalk[((frameCount + i) % (FPS / 4)) * 8 / FPS];
+        zombieTex = zombieRightWalk[((frameCount + i * 9) % (FPS / 4)) * 8 / FPS];
       else
-        zombieTex = zombieLeftWalk[((frameCount + i) % (FPS / 4)) * 8 / FPS];
+        zombieTex = zombieLeftWalk[((frameCount + i * 9) % (FPS / 4)) * 8 / FPS];
       DrawTextureEx(zombieTex, Vector2Add(Vector2Scale(Vector2Subtract(zombies[i], player.pos), ftileSize), (Vector2){ ftileSize * -0.4, ftileSize * -0.5 }), 0.f, ftileSize / 8.0f, WHITE);
       #ifdef debug
       float angle = Vector2Angle(Vector2Subtract(normalisedMouse, player.pos), Vector2Subtract(zombies[i], player.pos));
@@ -586,13 +602,13 @@ int drawGame()
   
   // Anime player
   // DrawTextureRec(manLeft, (Rectangle){ 0, 0, ftileSize * 06, ftileSize * 06 }, (Vector2){ ftileSize * -03, ftileSize * -03}, (Color){ 128, 128, 128, 255 });
-  Texture2D manTex = facing?manRight:manLeft;
+  Texture2D manTex = facing?manLeft:manRight;
   if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
   {
     if (facing)
-      manTex = manRightWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
-    else
       manTex = manLeftWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
+    else
+      manTex = manRightWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
   }
   DrawTextureEx(manTex, (Vector2){ ftileSize * -0.5, ftileSize * -0.5}, 0.f, ftileSize / 8.f, WHITE);
 
@@ -620,11 +636,41 @@ int drawUI()
   DrawText(TextFormat("Chunk offset: %d, %d", (unsigned int)(px-1) % 128, (unsigned int)(py-1) % 128), 10, 70, 20, RED);
   DrawText(TextFormat("aCE: %d, %d", activeChunkExistsX, activeChunkExistsY), 10, 100, 20, RED);
   #endif /* ifdef debug */
-  // Draw FPS
+  // Pause border to easily see that game is paused
   if (gamePaused) DrawRectangleLinesEx((Rectangle){ 0, 0, sW, sH }, 20, (Color){ 230, 41, 55, 128 });
+  if (gamePaused && !playerDead) drawScreen(PAUSED);
+  else if (gamePaused && playerDead) drawScreen(GAMEOVER);
+  // Draw FPS
   DrawFPS(10, sH - 30);
   return 0;
 }
+
+
+int drawScreen(int screen)
+{ switch (screen) {
+  int width, height;
+  case PLAYING:
+    // Do nothing
+    break;
+
+  case PAUSED:
+    width = MeasureText("GAME PAUSED", sH / TILESONSCREEN * 3);
+    height = sH / TILESONSCREEN * 3;
+    DrawText("GAME PAUSED", (sW-width)/2, (sH-height)/2, sH / TILESONSCREEN * 3, RED);
+    break;
+
+  case START:
+    ClearBackground((Color){ 20, 20, 20, 255 });
+    break;
+
+  case GAMEOVER:
+    break;
+
+  default:
+    // Do nothing
+    break;
+
+} return 0; }
 
 
 int xorShift32(int state)
@@ -717,3 +763,11 @@ char *getTile(Vector2 pos)
   int chunkTileY = (int)(pos.y - CHUNKSIZE * pCy);
   return &activeChunks[findChunk(4, activeChunks, pCx, pCy, 0)].tiles[chunkTileX][chunkTileY];
 }
+
+/* Not implemented (TODO)
+int spiralFindTile(Vector2 pos, int *x, int *y, int *activeChunk, char match)
+{
+
+  return 0;
+}
+*/
