@@ -17,7 +17,7 @@
 #define MAXZOMBIES 1000
 // This does nothing rn
 #define NUMSPAWNLOCATIONS 4
-#define ZOMBIESPEED 9
+#define ZOMBIESPEED 7
 // Shotgun Cooldown 0.5s
 #define SGCD 0.5
 // #define debug true
@@ -52,7 +52,8 @@ static unsigned int openSlots[MAXCHUNKS] = { -1 };
 int saveActiveChunk(int slot);
 int loadChunk(int slot, int xPos, int yPos);
 
-static int gamePaused = 1;
+static int mouseMode = 2;
+static int gamePaused = 2;
 static int playerDead = 0;
 static int sW = 1280;
 static int sH = 720;
@@ -66,6 +67,7 @@ static int spawnLocationsI;
 static int spawnAt;
 static float shotgunCooldown = 0;
 
+static Vector2 normalisedMouse;
 static Vector2 scheduledMovement;
 static struct player player = { 0 };
 static Camera2D mainCam = { 0 };
@@ -78,6 +80,7 @@ char *getTile(Vector2 pos);
 // int spiralFindTile(Vector2 pos, int *x, int *y, int *activeChunk, char match);  // Not implemented
 int toggleState(int *var);
 
+int startScreen();
 int setupGame();
 int handleControls();
 int tick();
@@ -135,6 +138,12 @@ int main(int argc, char *argv[])
     handleControls();
     // Update game variables
     if (!gamePaused) tick();
+
+    if (gamePaused == 2)
+    {
+      startScreen();
+      continue;
+    }
 
     BeginDrawing();
       ClearBackground(RAYWHITE);
@@ -215,14 +224,22 @@ int fullscreenAdjust()
 
 int handleControls()
 {
+  // Mouse Mode
+  if (IsKeyPressed(KEY_M)) mouseMode = 2;
+  if (IsKeyPressed(KEY_K)) toggleState(&mouseMode);
+
   // Fullscreening
   if (IsKeyPressed(KEY_F11)) fullscreenAdjust();
 
   // Pausing
   if (IsKeyPressed(KEY_P) && !playerDead) toggleState(&gamePaused);
 
-  // Calculate some very usefull constants
-  Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
+  // Restarting
+  if (playerDead && IsKeyPressed(KEY_ENTER))
+  {
+    gamePaused = 2;
+    setupGame();
+  }
 
   // Handle movement; peform collision check with tile
   scheduledMovement = (Vector2){ 0, 0 };
@@ -235,15 +252,28 @@ int handleControls()
   if (IsKeyDown(KEY_D))
     scheduledMovement.x += (float) SPEED / FPS;
 
-  // Set player direction
+  // Set player animation direction
   if (scheduledMovement.x > 0) facing = 1;
   if (scheduledMovement.x < 0) facing = 0;
+
+  // Player direction
+  if (!mouseMode)
+  {
+    if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
+      normalisedMouse = scheduledMovement;
+  }
+  else if (mouseMode == 1)
+  {
+    if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
+    normalisedMouse = Vector2Scale(scheduledMovement, -1.f);
+  }
+  else normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
 
   float angle;
   Vector2 zom;
   int chunk, chunkx, chunky;
 
-  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && shotgunCooldown > SGCD)
+  if ((IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsKeyDown(KEY_SPACE)) && shotgunCooldown > SGCD)
   {
     shotgunCooldown = 0.f;
     // Check for all zombie in 360 range then refine
@@ -260,13 +290,15 @@ int handleControls()
             spawnLocations[spawnLocationsI] = zombies[i];
             spawnLocationsI = ++spawnLocationsI >= NUMSPAWNLOCATIONS ? 0 : spawnLocationsI;
             zombies[i] = (Vector2){ 0, 0 };
+            // Increment player kills
+            player.kills++;
           }
         }
   }
 
 
   #ifdef debug
-  if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+  if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || IsKeyDown(KEY_SPACE))
     // normalisedMouse
     *getTile(Vector2Add(Vector2Scale(normalisedMouse, (float) TILESONSCREEN / sH), player.pos)) = 1;
   #endif /* ifdef debug */
@@ -550,7 +582,20 @@ int drawGame()
       }
 
   // Draw gun range
-  float mouseAngle = Vector2Angle((Vector2){ 1, 1 }, Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH }));
+  // Vector2 normalisedMouse;
+  // if (!mouseMode)
+  // {
+  //   if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
+  //     normalisedMouse = scheduledMovement;
+  // }
+  // else if (mouseMode == 1)
+  // {
+  //   if (scheduledMovement.x != 0.f || scheduledMovement.y != 0.f)
+  //   normalisedMouse = Vector2Scale(scheduledMovement, -1.f);
+  // }
+  // else normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
+
+  float mouseAngle = Vector2Angle((Vector2){ 1, 1 }, normalisedMouse);
   Color col = { 245, 245, 245, 120 };
   // Flash the firing range yellow for 0.1s
   if (shotgunCooldown <= 0.1f)
@@ -569,7 +614,6 @@ int drawGame()
 
   float ftileSize = sH / (float) TILESONSCREEN;
   // Draw zombies
-  Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
   Texture2D zombieTex;
   for (int i = 0; i < MAXZOMBIES; ++i)
     if (zombies[i].x != 0)
@@ -596,7 +640,6 @@ int drawGame()
   // DrawRectangle(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLUE);
   // DrawRectangleLines(ftileSize * -0.3, ftileSize * -0.3, ftileSize * 0.6, ftileSize * 0.6, BLACK);
   #ifdef debug
-  // Vector2 normalisedMouse = Vector2Add(GetMousePosition(), (Vector2){ -0.5 * sW, -0.5 * sH });
   // printf("%f %f %f\n", mouseAngle, GetMousePosition().x, GetMousePosition().y);
   #endif /* ifdef debug */
   
@@ -638,6 +681,18 @@ int drawUI()
   #endif /* ifdef debug */
   // Pause border to easily see that game is paused
   if (gamePaused) DrawRectangleLinesEx((Rectangle){ 0, 0, sW, sH }, 20, (Color){ 230, 41, 55, 128 });
+  // Draw Score
+  int tileSize = sH / TILESONSCREEN;
+  const char *scorestring = TextFormat("Score: %d", player.kills);
+  DrawText(scorestring, (sW - MeasureText(scorestring, tileSize)) / 2, 10, tileSize, RED);
+  // Draw mouseMode
+  const char *mouseModeText = "Mouse";
+  if (!mouseMode)
+    mouseModeText = "Keyboard";
+  else if (mouseMode == 1)
+    mouseModeText = "Inverted Keyboard";
+  DrawText(mouseModeText, sW - MeasureText(mouseModeText, tileSize) - tileSize/2, sH - tileSize*3/2, tileSize, RED);
+  // Paused Or Game Over
   if (gamePaused && !playerDead) drawScreen(PAUSED);
   else if (gamePaused && playerDead) drawScreen(GAMEOVER);
   // Draw FPS
@@ -647,16 +702,18 @@ int drawUI()
 
 
 int drawScreen(int screen)
-{ switch (screen) {
+{ 
   int width, height;
+  const int tileSize = sH / TILESONSCREEN;
+  switch (screen) {
   case PLAYING:
     // Do nothing
     break;
 
   case PAUSED:
-    width = MeasureText("GAME PAUSED", sH / TILESONSCREEN * 3);
-    height = sH / TILESONSCREEN * 3;
-    DrawText("GAME PAUSED", (sW-width)/2, (sH-height)/2, sH / TILESONSCREEN * 3, RED);
+    width = MeasureText("GAME PAUSED", tileSize * 3);
+    height = tileSize * 3;
+    DrawText("GAME PAUSED", (sW-width)/2, (sH-height)/2, tileSize * 3, RED);
     break;
 
   case START:
@@ -664,6 +721,17 @@ int drawScreen(int screen)
     break;
 
   case GAMEOVER:
+    ClearBackground((Color){ 220, 20, 20, 255 });
+    DrawText("You Died", (sW - MeasureText("You Died", tileSize * 2)) / 2, sH / 2 - 5 - tileSize * 2, tileSize * 2, (Color){ 255, 20, 120, 255 });
+    const char *scorestring = TextFormat("Score: %d", player.kills);
+    DrawText(scorestring, (sW - MeasureText(scorestring, tileSize * 2)) / 2, sH / 2 + 5, tileSize * 2, (Color){ 255, 20, 120, 255 });
+    DrawText(
+        "Press Enter to return to Start",
+        (sW - MeasureText("Press Enter to return to Start", tileSize / 2)) / 2,
+        sH / 2 + 5 + tileSize * 2,
+        tileSize / 2,
+        (Color){ 255, 20, 120, 255 }
+    );
     break;
 
   default:
@@ -771,3 +839,46 @@ int spiralFindTile(Vector2 pos, int *x, int *y, int *activeChunk, char match)
   return 0;
 }
 */
+
+int startScreen()
+{
+  frameCount++;
+  // Animeate player being chased by zombie
+
+  // Check the resolution of the window in case it has been resized
+  if (IsWindowFullscreen())
+  {
+    int display = GetCurrentMonitor();
+    sW = GetMonitorWidth(display);
+    sH = GetMonitorHeight(display);
+  } else {
+    sW = GetScreenWidth();
+    sH = GetScreenHeight();
+  }
+  // ---
+  const char *controls[5] = { NULL };
+  controls[0] = "k - Toggle between keyboard aiming modes";
+  controls[1] = "m - Enable mouse aiming";
+  controls[2] = "p - pause / start game";
+  controls[3] = "space - fire";
+  controls[4] = "esc - quit";
+  Texture2D zombieTex = zombieLeftWalk[(frameCount % (FPS / 4)) * 8 / FPS];
+  Texture2D playerTex = manLeftWalk[((frameCount + 69) % (FPS / 5)) * 10 / FPS];
+  float tileSize = sH / (float) TILESONSCREEN;
+  BeginDrawing();
+  ClearBackground((Color){ 0, 132, 45, 255 });
+  DrawText("Hoard Avoidance", (sW - MeasureText("Hoard Avoidance", tileSize * 4)) / 2, tileSize, tileSize * 4, GREEN);
+  DrawTextureEx(zombieTex, (Vector2){ sW * 0.35, sH * 0.325 }, 0.f, tileSize / 4.f, WHITE);
+  DrawTextureEx(zombieTex, (Vector2){ sW * 0.3, sH * 0.275 }, 0.f, tileSize / 4.f, WHITE);
+  DrawTextureEx(playerTex, (Vector2){ sW * 0.6, sH * 0.3 }, 0.f, tileSize / 4.f, WHITE);
+  for (int i = 0; i < 5; ++i)
+    DrawText(controls[i], (sW - MeasureText(controls[i], tileSize / 2)) / 2, sH / 2.f + i * tileSize, tileSize / 2, GREEN);
+  const char *mouseModeText = "Mouse";
+  if (!mouseMode)
+    mouseModeText = "Keyboard";
+  else if (mouseMode == 1)
+    mouseModeText = "Inverted Keyboard";
+  DrawText(mouseModeText, sW - MeasureText(mouseModeText, tileSize) - tileSize/2, sH - tileSize*3/2, tileSize, RED);
+  EndDrawing();
+  return 0;
+}
